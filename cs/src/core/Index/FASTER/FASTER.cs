@@ -279,6 +279,8 @@ namespace FASTER.core
                 backend = new FoldOverCheckpointTask();
             else if (checkpointType == CheckpointType.Snapshot)
                 backend = new SnapshotCheckpointTask();
+            else if (checkpointType == CheckpointType.IncrementalSnapshot)
+                backend = new IncrementalSnapshotCheckpointTask();
             else
                 throw new FasterException("Unsupported checkpoint type");
 

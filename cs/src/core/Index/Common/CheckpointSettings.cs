@@ -17,7 +17,12 @@ namespace FASTER.core
         /// Flush current log (move read-only to tail)
         /// (enables incremental checkpointing, but log grows faster)
         /// </summary>
-        FoldOver
+        FoldOver,
+
+        /// <summary>
+        /// Take incremental snapshot of in-memory portion of log
+        /// </summary>
+        IncrementalSnapshot
     }
 
     /// <summary>

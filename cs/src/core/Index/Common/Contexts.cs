@@ -190,6 +190,11 @@ namespace FASTER.core
         public long[] objectLogSegmentOffsets;
 
         /// <summary>
+        /// For incremental snapshots, Guid of the base
+        /// </summary>
+        public Guid baseGuid;
+
+        /// <summary>
         /// Initialize
         /// </summary>
         /// <param name="token"></param>
@@ -275,6 +280,9 @@ namespace FASTER.core
                     objectLogSegmentOffsets[i] = long.Parse(value);
                 }
             }
+
+            value = reader.ReadLine();
+            baseGuid = Guid.Parse(value);
         }
 
         /// <summary>
@@ -329,6 +337,7 @@ namespace FASTER.core
                         writer.WriteLine(objectLogSegmentOffsets[i]);
                     }
                 }
+                writer.WriteLine(baseGuid);
             }
             return ms.ToArray();
         }
@@ -467,17 +476,6 @@ namespace FASTER.core
             Debug.WriteLine("Num Buckets: {0}", num_buckets);
             Debug.WriteLine("Start Logical Address: {0}", startLogicalAddress);
             Debug.WriteLine("Final Logical Address: {0}", finalLogicalAddress);
-        }
-
-        public void Reset()
-        {
-            token = default;
-            table_size = 0;
-            num_ht_bytes = 0;
-            num_ofb_bytes = 0;
-            num_buckets = 0;
-            startLogicalAddress = 0;
-            finalLogicalAddress = 0;
         }
     }
 
