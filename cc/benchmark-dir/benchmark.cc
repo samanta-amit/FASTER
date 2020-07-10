@@ -252,8 +252,10 @@ class RmwContext : public IAsyncContext {
 /// Key-value store, specialized to our key and value types.
 #ifdef _WIN32
 typedef FASTER::environment::ThreadPoolIoHandler handler_t;
+//#elseif
+//typedef FASTER::environment::QueueIoHandler handler_t;
 #else
-typedef FASTER::environment::QueueIoHandler handler_t;
+typedef FASTER::environment::UringQueueIoHandler handler_t;
 #endif
 typedef FASTER::device::FileSystemDisk<handler_t, 1073741824ull> disk_t;
 using store_t = FasterKv<Key, Value, disk_t>;
