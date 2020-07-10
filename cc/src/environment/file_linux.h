@@ -10,13 +10,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <stdio.h>
-#include <fcntl.h>
-#include <stdlib.h>
-#include <assert.h>
-#include <errno.h>
-#include <inttypes.h>
-#include <sys/ioctl.h>
+
 #include "../core/async.h"
 #include "../core/status.h"
 #include "file_common.h"
@@ -143,6 +137,7 @@ class File {
   std::atomic<uint64_t> bytes_read_;
 #endif
 };
+
  
  /// Added later for IO Uring
 class UringQueueFile;
@@ -217,6 +212,8 @@ class UringQueueIoHandler {
 };
 /// Added later for IO Uring
 
+/// The QueueFile class encapsulates asynchronous reads and writes, using the specified AIO
+/// context.
 
 /// Added later for IO Uring
 class UringQueueFile : public File {
@@ -245,9 +242,9 @@ class UringQueueFile : public File {
               UringQueueIoHandler* handler, bool* exists = nullptr);
 
   Status Read(size_t offset, uint32_t length, uint8_t* buffer,
-              //IAsyncContext& context, AsyncIOCallback callback) const;
+              IAsyncContext& context, AsyncIOCallback callback) const;
   Status Write(size_t offset, uint32_t length, const uint8_t* buffer,
-               //IAsyncContext& context, AsyncIOCallback callback);
+               IAsyncContext& context, AsyncIOCallback callback);
 
  private:
   Status ScheduleOperation(FileOperationType operationType, uint8_t* buffer, size_t offset,
