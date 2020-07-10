@@ -10,7 +10,13 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
+#include <stdio.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <errno.h>
+#include <inttypes.h>
+#include <sys/ioctl.h>
 #include "../core/async.h"
 #include "../core/status.h"
 #include "file_common.h"
@@ -66,7 +72,7 @@ class File {
 
   ~File() {
     if(owner_) {
-      core::Status s = Close();
+      Status s = Close();
     }
   }
 
@@ -86,11 +92,11 @@ class File {
   }
 
  protected:
-  core::Status Open(int flags, FileCreateDisposition create_disposition, bool* exists = nullptr);
+  Status Open(int flags, FileCreateDisposition create_disposition, bool* exists = nullptr);
 
  public:
-  core::Status Close();
-  core::Status Delete();
+  Status Close();
+  Status Delete();
 
   uint64_t size() const {
     struct stat stat_buffer;
@@ -119,7 +125,7 @@ class File {
 #endif
 
  private:
-  core::Status GetDeviceAlignment();
+  Status GetDeviceAlignment();
   static int GetCreateDisposition(FileCreateDisposition create_disposition);
 
  protected:
@@ -137,45 +143,44 @@ class File {
   std::atomic<uint64_t> bytes_read_;
 #endif
 };
+ 
+ /// Added later for IO Uring
+class UringQueueFile;
 
-class QueueFile;
-
-/// The QueueIoHandler class encapsulates completions for async file I/O, where the completions
-/// are put on the AIO completion queue.
-class QueueIoHandler {
+class UringQueueIoHandler {
  public:
-  typedef QueueFile async_file_t;
+  typedef UringQueueFile async_file_t;
 
  private:
-  constexpr static int kMaxEvents = 128;
+  constexpr static int skMaxEvents = 128;
 
  public:
-  QueueIoHandler()
+  UringQueueIoHandler()
     : io_object_{ 0 } {
   }
-  QueueIoHandler(size_t max_threads)
+  UringQueueIoHandler(size_t max_threads)
     : io_object_{ 0 } {
-    int result = ::io_setup(kMaxEvents, &io_object_);
+    int result = ::io_setup(skMaxEvents, &io_object_);
     assert(result >= 0);
   }
 
   /// Move constructor
-  QueueIoHandler(QueueIoHandler&& other) {
+  UringQueueIoHandler(UringQueueIoHandler&& other) {
     io_object_ = other.io_object_;
     other.io_object_ = 0;
   }
 
-  ~QueueIoHandler() {
+  ~UringQueueIoHandler() {
     if(io_object_ != 0)
       ::io_destroy(io_object_);
   }
 
   /// Invoked whenever a Linux AIO completes.
-  static void IoCompletionCallback(io_context_t ctx, struct iocb* iocb, long res, long res2);
+  static void UringIoCompletionCallback(io_context_t ctx, struct iocb* iocb, long res, long res2);
 
-  struct IoCallbackContext {
-    IoCallbackContext(FileOperationType operation, int fd, size_t offset, uint32_t length,
-                      uint8_t* buffer, core::IAsyncContext* context_, core::AsyncIOCallback callback_)
+  struct UringIoCallbackContext {
+    UringIoCallbackContext(FileOperationType operation, int fd, size_t offset, uint32_t length,
+                      uint8_t* buffer, IAsyncContext* context_, AsyncIOCallback callback_)
       : caller_context{ context_ }
       , callback{ callback_ } {
       if(FileOperationType::Read == operation) {
@@ -183,7 +188,7 @@ class QueueIoHandler {
       } else {
         ::io_prep_pwrite(&this->parent_iocb, fd, buffer, length, offset);
       }
-      ::io_set_callback(&this->parent_iocb, IoCompletionCallback);
+      ::io_set_callback(&this->parent_iocb, UringIoCompletionCallback);
     }
 
     // WARNING: "parent_iocb" must be the first field in AioCallbackContext. This class is a C-style
@@ -193,10 +198,10 @@ class QueueIoHandler {
     struct iocb parent_iocb;
 
     /// Caller callback context.
-    core::IAsyncContext* caller_context;
+    IAsyncContext* caller_context;
 
     /// The caller's asynchronous callback function
-    core::AsyncIOCallback callback;
+    AsyncIOCallback callback;
   };
 
   inline io_context_t io_object() const {
@@ -210,45 +215,47 @@ class QueueIoHandler {
   /// The Linux AIO context used for IO completions.
   io_context_t io_object_;
 };
+/// Added later for IO Uring
 
-/// The QueueFile class encapsulates asynchronous reads and writes, using the specified AIO
-/// context.
-class QueueFile : public File {
+
+/// Added later for IO Uring
+class UringQueueFile : public File {
  public:
-  QueueFile()
+  UringQueueFile()
     : File()
     , io_object_{ nullptr } {
   }
-  QueueFile(const std::string& filename)
+  UringQueueFile(const std::string& filename)
     : File(filename)
     , io_object_{ nullptr } {
   }
   /// Move constructor
-  QueueFile(QueueFile&& other)
+  UringQueueFile(UringQueueFile&& other)
     : File(std::move(other))
     , io_object_{ other.io_object_ } {
   }
   /// Move assignment operator.
-  QueueFile& operator=(QueueFile&& other) {
+  UringQueueFile& operator=(UringQueueFile&& other) {
     File::operator=(std::move(other));
     io_object_ = other.io_object_;
     return *this;
   }
 
-  core::Status Open(FileCreateDisposition create_disposition, const FileOptions& options,
-              QueueIoHandler* handler, bool* exists = nullptr);
+  Status Open(FileCreateDisposition create_disposition, const FileOptions& options,
+              UringQueueIoHandler* handler, bool* exists = nullptr);
 
-  core::Status Read(size_t offset, uint32_t length, uint8_t* buffer,
-                    core::IAsyncContext& context, core::AsyncIOCallback callback) const;
-  core::Status Write(size_t offset, uint32_t length, const uint8_t* buffer,
-                     core::IAsyncContext& context, core::AsyncIOCallback callback);
+  Status Read(size_t offset, uint32_t length, uint8_t* buffer,
+              //IAsyncContext& context, AsyncIOCallback callback) const;
+  Status Write(size_t offset, uint32_t length, const uint8_t* buffer,
+               //IAsyncContext& context, AsyncIOCallback callback);
 
  private:
-  core::Status ScheduleOperation(FileOperationType operationType, uint8_t* buffer, size_t offset,
-                           uint32_t length, core::IAsyncContext& context, core::AsyncIOCallback callback);
+  Status ScheduleOperation(FileOperationType operationType, uint8_t* buffer, size_t offset,
+                           uint32_t length, IAsyncContext& context, AsyncIOCallback callback);
 
   io_context_t io_object_;
 };
-
+/// Added later for IO Uring
+ 
 }
 } // namespace FASTER::environment
