@@ -2,6 +2,7 @@
 // Licensed under the MIT license.
 
 #include <cstring>
+#include <stdlib.h>
 #include <sys/ioctl.h>
 #include <linux/fs.h>
 #include <errno.h>
@@ -11,10 +12,10 @@
 #include <time.h>
 #include "file_linux.h"
 
+static int fd;
+
 namespace FASTER {
 namespace environment {
-
-using namespace FASTER::core;
 
 #ifdef _DEBUG
 #define DCHECK_ALIGNMENT(o, l, b) \
@@ -26,6 +27,7 @@ do { \
 #else
 #define DCHECK_ALIGNMENT(o, l, b) do {} while(0)
 #endif
+	
 
 Status File::Open(int flags, FileCreateDisposition create_disposition, bool* exists) {
   if(exists) {
@@ -105,10 +107,12 @@ int File::GetCreateDisposition(FileCreateDisposition create_disposition) {
   }
 }
 
-void QueueIoHandler::IoCompletionCallback(io_context_t ctx, struct iocb* iocb, long res,
+
+/// Added later for IO Uring
+void UringQueueIoHandler::UringIoCompletionCallback(io_context_t ctx, struct iocb* iocb, long res,
     long res2) {
-  auto callback_context = core::make_context_unique_ptr<IoCallbackContext>(
-                            reinterpret_cast<IoCallbackContext*>(iocb));
+  auto callback_context = make_context_unique_ptr<UringIoCallbackContext>(
+                            reinterpret_cast<UringIoCallbackContext*>(iocb));
   size_t bytes_transferred;
   Status return_status;
   if(res < 0) {
@@ -120,8 +124,11 @@ void QueueIoHandler::IoCompletionCallback(io_context_t ctx, struct iocb* iocb, l
   }
   callback_context->callback(callback_context->caller_context, return_status, bytes_transferred);
 }
+/// Added later for IO Uring
 
-bool QueueIoHandler::TryComplete() {
+
+/// Added later for IO Uring
+bool UringQueueIoHandler::TryComplete() {
   struct timespec timeout;
   std::memset(&timeout, 0, sizeof(timeout));
   struct io_event events[1];
@@ -134,9 +141,11 @@ bool QueueIoHandler::TryComplete() {
     return false;
   }
 }
+/// Added later for IO Uring
 
-Status QueueFile::Open(FileCreateDisposition create_disposition, const FileOptions& options,
-                       QueueIoHandler* handler, bool* exists) {
+/// Added later for IO Uring
+Status UringQueueFile::Open(FileCreateDisposition create_disposition, const FileOptions& options,
+                       UringQueueIoHandler* handler, bool* exists) {
   int flags = 0;
   if(options.unbuffered) {
     flags |= O_DIRECT;
@@ -150,18 +159,19 @@ Status QueueFile::Open(FileCreateDisposition create_disposition, const FileOptio
   return Status::Ok;
 }
 
-Status QueueFile::Read(size_t offset, uint32_t length, uint8_t* buffer,
+Status UringQueueFile::Read(size_t offset, uint32_t length, uint8_t* buffer,
                        IAsyncContext& context, AsyncIOCallback callback) const {
   DCHECK_ALIGNMENT(offset, length, buffer);
 #ifdef IO_STATISTICS
   ++read_count_;
   bytes_read_ += length;
 #endif
-  return const_cast<QueueFile*>(this)->ScheduleOperation(FileOperationType::Read, buffer,
+  return const_cast<UringQueueFile*>(this)->ScheduleOperation(FileOperationType::Read, buffer,
          offset, length, context, callback);
 }
 
-Status QueueFile::Write(size_t offset, uint32_t length, const uint8_t* buffer,
+	
+Status UringQueueFile::Write(size_t offset, uint32_t length, const uint8_t* buffer,
                         IAsyncContext& context, AsyncIOCallback callback) {
   DCHECK_ALIGNMENT(offset, length, buffer);
 #ifdef IO_STATISTICS
@@ -171,17 +181,17 @@ Status QueueFile::Write(size_t offset, uint32_t length, const uint8_t* buffer,
                            context, callback);
 }
 
-Status QueueFile::ScheduleOperation(FileOperationType operationType, uint8_t* buffer,
+Status UringQueueFile::ScheduleOperation(FileOperationType operationType, uint8_t* buffer,
                                     size_t offset, uint32_t length, IAsyncContext& context,
                                     AsyncIOCallback callback) {
-  auto io_context = core::alloc_context<QueueIoHandler::IoCallbackContext>(sizeof(
-                      QueueIoHandler::IoCallbackContext));
+  auto io_context = alloc_context<UringQueueIoHandler::UringIoCallbackContext>(sizeof(
+                      UringQueueIoHandler::UringIoCallbackContext));
   if(!io_context.get()) return Status::OutOfMemory;
 
   IAsyncContext* caller_context_copy;
   RETURN_NOT_OK(context.DeepCopy(caller_context_copy));
 
-  new(io_context.get()) QueueIoHandler::IoCallbackContext(operationType, fd_, offset, length,
+  new(io_context.get()) UringQueueIoHandler::UringIoCallbackContext(operationType, fd_, offset, length,
       buffer, caller_context_copy, callback);
 
   struct iocb* iocbs[1];
@@ -195,6 +205,7 @@ Status QueueFile::ScheduleOperation(FileOperationType operationType, uint8_t* bu
   io_context.release();
   return Status::Ok;
 }
+/// Added later for IO Uring
 
 #undef DCHECK_ALIGNMENT
 
